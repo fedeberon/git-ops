@@ -1,0 +1,10 @@
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+.env
+.env.*
+*.tfvars
+!*.tfvars.example
+AGENTS.md
