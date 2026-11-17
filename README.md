@@ -66,7 +66,13 @@ El estado de Terraform se guarda localmente y se excluye de Git. Conservarlo has
 
 ## Plan desde GitHub Actions
 
-En `main`, después de validar, el workflow asume el rol `github-terraform-plan`, muestra la identidad de AWS y ejecuta `terraform plan`. En pull requests solo valida. El rol tiene lectura de S3; el workflow no ejecuta `apply`.
+### Aplicación con aprobación
+
+El job de plan guarda `deployment.tfplan` como artifact durante un día si detecta cambios. El job `apply` espera la aprobación del environment `lab`, asume `github-terraform-apply` y aplica ese archivo exacto. Si no hay cambios, se omite apply. La concurrencia del workflow serializa ejecuciones de la misma rama y no cancela despliegues activos. Evitar cambios locales al estado mientras se revisa un plan; si cambia el estado, generar una nueva ejecución completa. Para reintentar un despliegue fallido, ejecutar todos los jobs otra vez para regenerar el plan y su artifact.
+
+El rol de apply confía en `repo:fedeberon@14318665/git-ops@1461734010:environment:lab`; el environment debe exigir aprobación de fedeberon, permitir autoaprobación para el laboratorio y limitar despliegues a la rama main. Sus permisos administran los buckets `fede-terraform-lab-*` y el estado/bloqueo del laboratorio.
+
+En `main`, después de validar, el workflow asume el rol `github-terraform-plan`, muestra la identidad de AWS y ejecuta `terraform plan`. En pull requests solo valida. El rol de plan tiene lectura de S3 y acceso al estado/bloqueo; apply usa un rol separado y requiere aprobación.
 
 El backend S3 está declarado en `labs/01-s3/backend.tf`: guarda el estado en `s3://fede-gitops-tfstate-603404126514/labs/01-s3/terraform.tfstate` y usa bloqueo nativo con `use_lockfile`. El bucket se creó por separado, con versionado y acceso público bloqueado. El rol de GitHub tiene la política adicional `terraform-state-access` para el estado y su bloqueo.
 
