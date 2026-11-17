@@ -68,4 +68,18 @@ El estado de Terraform se guarda localmente y se excluye de Git. Conservarlo has
 
 En `main`, después de validar, el workflow asume el rol `github-terraform-plan`, muestra la identidad de AWS y ejecuta `terraform plan`. En pull requests solo valida. El rol tiene lectura de S3; el workflow no ejecuta `apply`.
 
-Por ahora el runner no comparte el estado local: su plan parte de un estado vacío. El laboratorio fue eliminado antes de este ejercicio. Configurar un backend remoto antes de administrar infraestructura persistente desde el pipeline.
+El backend S3 está declarado en `labs/01-s3/backend.tf`: guarda el estado en `s3://fede-gitops-tfstate-603404126514/labs/01-s3/terraform.tfstate` y usa bloqueo nativo con `use_lockfile`. El bucket se creó por separado, con versionado y acceso público bloqueado. El rol de GitHub tiene la política adicional `terraform-state-access` para el estado y su bloqueo.
+
+Antes de subir esta configuración por primera vez, migrar el estado desde la Mac:
+
+```bash
+export AWS_PROFILE=terraform-lab-tools
+cd labs/01-s3
+terraform init -migrate-state
+terraform state list
+terraform plan
+```
+
+Revisar el destino y aceptar la copia del estado si Terraform la solicita. El laboratorio ya fue destruido, por lo que se espera una lista vacía y un plan de 2 recursos nuevos. No ejecutar apply en este paso. Si no existe estado local para copiar, init solo configurará el backend.
+
+El pipeline valida sin backend primero y luego, únicamente en main y tras autenticarse, inicializa el backend remoto y ejecuta plan. No borra el bucket del estado al destruir el laboratorio.

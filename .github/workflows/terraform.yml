@@ -78,6 +78,10 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: aws sts get-caller-identity --no-cli-pager
 
+      - name: Initialize remote state
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: terraform init -input=false -lockfile=readonly
+
       - name: Terraform plan
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: terraform plan -input=false -no-color
