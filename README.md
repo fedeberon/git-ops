@@ -35,6 +35,14 @@ Referencia: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sign-
 
 ### Preparar y revisar
 
+Para trabajar localmente, seleccionar el perfil en la terminal antes de ejecutar Terraform:
+
+```bash
+export AWS_PROFILE=terraform-lab-tools
+```
+
+El provider no fija un perfil: localmente usa `AWS_PROFILE`; GitHub Actions usa las credenciales temporales del rol `github-terraform-plan` mediante OIDC.
+
 ```bash
 cd labs/01-s3
 terraform init
@@ -55,3 +63,9 @@ terraform destroy
 Ambos comandos solicitan confirmación. Mantener el bucket vacío durante este ejercicio para poder eliminarlo sin borrar objetos manualmente. El uso de AWS puede consumir créditos según almacenamiento y solicitudes.
 
 El estado de Terraform se guarda localmente y se excluye de Git. Conservarlo hasta ejecutar `destroy`; más adelante configuraremos un backend remoto. El archivo `.terraform.lock.hcl` sí debe guardarse en Git.
+
+## Plan desde GitHub Actions
+
+En `main`, después de validar, el workflow asume el rol `github-terraform-plan`, muestra la identidad de AWS y ejecuta `terraform plan`. En pull requests solo valida. El rol tiene lectura de S3; el workflow no ejecuta `apply`.
+
+Por ahora el runner no comparte el estado local: su plan parte de un estado vacío. El laboratorio fue eliminado antes de este ejercicio. Configurar un backend remoto antes de administrar infraestructura persistente desde el pipeline.

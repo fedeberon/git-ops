@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
   validate:
@@ -39,3 +40,19 @@ jobs:
 
       - name: Validate configuration
         run: terraform validate
+
+      - name: Authenticate to AWS
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::603404126514:role/github-terraform-plan
+          aws-region: us-east-2
+          allowed-account-ids: "603404126514"
+
+      - name: Check AWS identity
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: aws sts get-caller-identity --no-cli-pager
+
+      - name: Terraform plan
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: terraform plan -input=false -no-color

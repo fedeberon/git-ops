@@ -11,7 +11,6 @@ terraform {
 
 provider "aws" {
   region              = "us-east-2"
-  profile             = "terraform-lab-tools"
   allowed_account_ids = ["603404126514"]
 
   default_tags {
