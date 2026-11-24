@@ -1,0 +1,51 @@
+name: Scintilla · Despliegue manual
+run-name: "Scintilla · Desplegando imagen existente · ${{ github.ref_name }} · #${{ github.run_number }}-${{ github.run_attempt }}"
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: 'Digest completo de la imagen probada: sha256:...'
+        required: true
+        type: string
+      instance_id:
+        description: 'EC2 del laboratorio: i-...'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scintilla-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Solo Run workflow desde main. Sin Environment ni aprobación adicional.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-2
+      IMAGE_DIGEST: ${{ inputs.image_digest }}
+      INSTANCE_ID: ${{ inputs.instance_id }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Validate selection before requesting AWS credentials
+        run: node scripts/scintilla-deploy.mjs validate
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::603404126514:role/github-scintilla-deploy
+          aws-region: us-east-2
+          allowed-account-ids: '603404126514'
+      - name: Deploy exact digest through Systems Manager and verify health
+        run: node scripts/scintilla-deploy.mjs deploy

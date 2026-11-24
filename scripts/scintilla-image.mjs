@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { isReleaseCandidate } from './gitflow-policy.mjs';
 import { appendFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -34,6 +35,9 @@ function imageDigest(repository, tag) {
 }
 
 function publish() {
+  if (!isReleaseCandidate(process.env.GITHUB_REF ?? '')) {
+    throw new Error('Solo release/rc-N puede publicar una imagen');
+  }
   const registry = process.env.REGISTRY;
   const repository = process.env.ECR_REPOSITORY;
   const commit = process.env.GITHUB_SHA ?? '';
@@ -59,7 +63,7 @@ function publish() {
   }
   if (!digest) throw new Error('No se encontró la imagen publicada');
   const lines = ['## Imagen publicada', '', '- Versión: ' + tag,
-    '- Imagen: ' + image + ':' + tag, '- Commit: ' + commit,
+    '- Imagen: ' + image + ':' + tag, '- Commit: ' + commit, '- Rama: ' + process.env.GITHUB_REF_NAME,
     '- Referencia exacta para desplegar: ' + image + '@' + digest];
   console.log(lines.join(String.fromCharCode(10)));
   if (process.env.GITHUB_STEP_SUMMARY) {

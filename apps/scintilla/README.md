@@ -120,7 +120,7 @@ Antes de exponerlo públicamente: agregar autenticación, autorización por herr
 
 ## AWS y Route 53
 
-El laboratorio EC2 anterior fue destruido. Esta migración no crea recursos ni modifica sus permisos o Terraform; el user-data de labs/02-ec2-docker todavía inicia Nginx, no Scintilla. Hay que adaptar el despliegue antes de usarlo para esta aplicación.
+La EC2 anterior fue destruida. labs/02-ec2-docker prepara ahora Docker, permisos de descarga de ECR, un comando SSM acotado y un rol de despliegue. user-data instala el script de despliegue y no inicia Nginx. Los recursos solo existirán después de que el usuario revise y aplique Terraform.
 
 Route 53 resuelve DNS, no aloja la API ni administra Node. Un diseño futuro es un nombre api bajo un dominio que controles → alias Route 53 hacia ALB → instancias o contenedores. HTTPS requiere un certificado y configuración del punto de entrada, por ejemplo ACM con ALB. El health check puede consultar /health.
 
@@ -134,7 +134,7 @@ Esta convención basada en fecha y ejecución no usa SemVer para las imágenes. 
 
 ECR mantiene las etiquetas inmutables. El commit completo queda registrado en el label OCI org.opencontainers.image.revision y en el resumen de Actions. El resumen muestra también la URI y el digest: el despliegue puede fijarse a repository@sha256:DIGEST.
 
-El workflow ejecuta test y publish. Solo main publica, con SCINTILLA_PUBLISH_ENABLED=true y el rol OIDC existente. Cada nueva ejecución construye y prueba su propia imagen, incluso si repite el commit. El script reutiliza la imagen si ya existe exactamente su etiqueta.
+El workflow ejecuta test y publish según Gitflow. develop y main solo prueban; únicamente release/rc-N publica, con SCINTILLA_PUBLISH_ENABLED=true y un rol OIDC cuya confianza se debe actualizar aplicando labs/03-ecr. Cada nueva ejecución construye y prueba su propia imagen, incluso si repite el commit. El script reutiliza la imagen si ya existe exactamente su etiqueta.
 
 Para verificar las reglas desde la raíz del repositorio:
 
@@ -149,3 +149,51 @@ Las imágenes anteriores permanecen en ECR; no se renombran ni eliminan automát
 ## Artefacto publicado en ECR
 
 El pipeline construye solo linux/amd64 con --provenance=false y --sbom=false. No publica attestations de procedencia ni SBOM; normalmente ECR mostrará una imagen etiquetada por ejecución, sin el índice adicional para agrupar attestations. El commit, la fecha y la versión siguen en los labels OCI. Esta configuración reduce los metadatos de cadena de suministro disponibles para auditoría. No modifica imágenes ya publicadas.
+
+## Gitflow y despliegue manual
+
+```text
+feature/* → PR a develop → pruebas
+develop → release/rc-N → pruebas + construcción + ECR
+release/rc-N → PR a main → pruebas, sin construcción ni despliegue
+release/rc-N → PR de retorno a develop → incorpora correcciones del candidato
+main → Run workflow manual → despliega el digest elegido, sin reconstruir
+```
+
+La rama se llama develop. Los candidatos son release/rc-1, release/rc-2, etc.; no se usa una rama permanente release ni el prefijo releases/. Los candidatos se crean desde develop. Las PR ejecutan pruebas sin credenciales AWS. main representa código aceptado, no implica que ese código ya esté ejecutándose. Gitflow organiza ramas; no obliga a desplegar al mergear.
+
+No se configuran revisores obligatorios ni un Environment con aprobación para este ejercicio. No se modifican protecciones existentes en GitHub: si ya hay reglas, siguen aplicándose. Solo quien tenga permisos de ejecución en Actions puede iniciar el despliegue.
+
+### Preparar AWS antes de probar los candidatos
+
+1. Actualizar la política lab-scintilla-ecr-terraform con labs/03-ecr/terraform-operator-policy.json. Incluye UpdateAssumeRolePolicy para cambiar la confianza del rol existente.
+2. En labs/03-ecr ejecutar fmt, validate, plan y revisar el cambio de confianza: main deja de poder publicar; release/rc-* puede asumir el rol, con verificación adicional del formato rc-N en el workflow. Aplicar ese plan.
+3. Actualizar la política lab-ec2-docker-terraform con labs/02-ec2-docker/terraform-operator-policy.json. Agrega permisos sobre el nuevo rol de despliegue y el documento SSM. No sustituir la política ECR con esta ni viceversa.
+4. En labs/02-ec2-docker ejecutar fmt, validate y plan. Revisar y aplicar para recrear EC2; CPU, EBS e IPv4 pública generan consumo. Si la AMI actual difiere de la autorizada en LaunchSupportingResources, actualizar solo su ARN al ID del plan antes de aplicar.
+5. Esperar el arranque y registro SSM. El agente debe soportar interpolationType=ENV_VAR; si falla ese parámetro, actualizar el agente, sin sustituirlo por interpolación insegura.
+
+Terraform de EC2 sigue siendo local por ahora. El workflow Infra Cloud solo gestiona labs/01-s3 y ahora tiene filtros para evitar activarse por cambios exclusivos en Scintilla. Su apply y aprobación de infraestructura existentes se conservan.
+
+### Probar el flujo de ramas
+
+Una vez subidos los cambios a main, el usuario crea develop desde main si todavía no existe y crea release/rc-1 desde develop cuando quiera construir el primer candidato. El agente no crea ramas ni ejecuta git. Evitar comandos que descarten cambios locales. El workflow manual solo será visible al existir en la rama predeterminada del repositorio.
+
+Desde la raíz, comprobar las reglas sin AWS:
+
+```bash
+node --test scripts/test/*.test.mjs
+```
+
+Para main y develop el nombre de ejecución será Ejecutando pruebas; para un candidato será Construyendo imagen y subiendo a ECR. El número de ejecución e intento siguen identificando la publicación.
+
+### Ejecutar el despliegue
+
+En GitHub Actions elegir Scintilla · Despliegue manual → Run workflow → main. Introducir image_digest (sha256 completo tomado del resumen del build aceptado) e instance_id (output de Terraform). El workflow no se dispara por push, PR ni merge y no solicita aprobación adicional.
+
+El script verifica que el digest exista en scintilla y que la EC2 esté activa, con Application=scintilla y Environment=learning. Systems Manager ejecuta únicamente el documento ScintillaDeploy; la imagen se descarga en EC2 mediante su propio rol. No se instalan claves permanentes ni se abre SSH. El rol de despliegue no publica imágenes.
+
+El contenedor candidato se verifica en localhost:18080 antes del cambio. Luego se inicia scintilla en localhost:8080 y se comprueba /health. Se intenta restaurar el anterior si falla el nuevo contenedor. Es un despliegue de una instancia con una breve interrupción durante el reemplazo; no ofrece alta disponibilidad ni garantiza rollback ante una caída del host. Para revertir una versión sana manualmente, ejecutar el workflow con un digest anterior.
+
+La elección del artefacto sigue siendo manual: verificar que el digest corresponde al candidato probado y aceptado. El workflow no afirma que cualquier imagen seleccionada corresponda al árbol de main. El health comprueba el proceso, no dependencias externas. El despliegue no configura Route 53, ALB ni HTTPS y no expone /assistant a internet.
+
+Al terminar, revisar terraform plan -destroy desde labs/02-ec2-docker y eliminar el laboratorio si no se usará. labs/03-ecr tiene estado independiente; borrar EC2 no borra las imágenes.

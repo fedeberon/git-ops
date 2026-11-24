@@ -1,20 +1,30 @@
-name: Scintilla · Publicación
-run-name: "Scintilla · Publicación · ${{ github.ref_name }} · #${{ github.run_number }}-${{ github.run_attempt }}"
+name: Scintilla · CI y candidatos
+run-name: "Scintilla · ${{ github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/release/rc-') && 'Construyendo imagen y subiendo a ECR' || 'Ejecutando pruebas' }} · ${{ github.ref_name }} · #${{ github.run_number }}-${{ github.run_attempt }}"
 
 on:
   push:
-    branches: [main]
+    branches: [develop, main, 'release/rc-*']
     paths:
       - 'apps/scintilla/**'
       - '.github/workflows/scintilla.yml'
       - 'scripts/scintilla-image.mjs'
-      - 'scripts/test/scintilla-image.test.mjs'
+      - 'scripts/gitflow-policy.mjs'
+      - 'scripts/scintilla-deploy.mjs'
+      - '.github/workflows/scintilla-deploy.yml'
+      - 'scripts/test/**'
+      - 'labs/02-ec2-docker/deploy-container.sh'
+      - 'labs/02-ec2-docker/user-data.sh'
   pull_request:
     paths:
       - 'apps/scintilla/**'
       - '.github/workflows/scintilla.yml'
       - 'scripts/scintilla-image.mjs'
-      - 'scripts/test/scintilla-image.test.mjs'
+      - 'scripts/gitflow-policy.mjs'
+      - 'scripts/scintilla-deploy.mjs'
+      - '.github/workflows/scintilla-deploy.yml'
+      - 'scripts/test/**'
+      - 'labs/02-ec2-docker/deploy-container.sh'
+      - 'labs/02-ec2-docker/user-data.sh'
   workflow_dispatch:
 
 permissions:
@@ -45,15 +55,18 @@ jobs:
           node-version: '24'
           cache: npm
           cache-dependency-path: apps/scintilla/package-lock.json
+      - name: Check deployment shell syntax
+        working-directory: .
+        run: bash -n labs/02-ec2-docker/deploy-container.sh labs/02-ec2-docker/user-data.sh
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - name: Verify image version rules
-        run: node --test ../../scripts/test/scintilla-image.test.mjs
+        run: node --test ../../scripts/test/*.test.mjs
 
   publish:
     needs: test
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.SCINTILLA_PUBLISH_ENABLED == 'true'
+    if: startsWith(github.ref, 'refs/heads/release/rc-') && github.event_name != 'pull_request' && vars.SCINTILLA_PUBLISH_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -66,6 +79,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+      - name: Verify candidate branch before requesting AWS credentials
+        run: node --input-type=module -e "import { isReleaseCandidate } from './scripts/gitflow-policy.mjs'; if (!isReleaseCandidate(process.env.GITHUB_REF)) process.exit(1);"
       - uses: aws-actions/configure-aws-credentials@v5
         with:
           role-to-assume: arn:aws:iam::603404126514:role/github-scintilla-publish
