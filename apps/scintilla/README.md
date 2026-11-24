@@ -145,3 +145,7 @@ node --test scripts/test/scintilla-image.test.mjs
 La prueba cubre fecha UTC, cambio de día, reintentos y contadores inválidos. No requiere AWS ni Docker.
 
 Las imágenes anteriores permanecen en ECR; no se renombran ni eliminan automáticamente. No hace falta terraform apply para cambiar esta convención.
+
+## Artefacto publicado en ECR
+
+El pipeline construye solo linux/amd64 con --provenance=false y --sbom=false. No publica attestations de procedencia ni SBOM; normalmente ECR mostrará una imagen etiquetada por ejecución, sin el índice adicional para agrupar attestations. El commit, la fecha y la versión siguen en los labels OCI. Esta configuración reduce los metadatos de cadena de suministro disponibles para auditoría. No modifica imágenes ya publicadas.

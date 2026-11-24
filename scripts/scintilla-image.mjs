@@ -47,7 +47,8 @@ function publish() {
   const image = registry + '/' + repository;
   let digest = imageDigest(repository, tag);
   if (!digest) {
-    execute('docker', ['build', '--platform', 'linux/amd64',
+    // Publica solo la imagen ejecutable, sin attestations de procedencia o SBOM.
+    execute('docker', ['build', '--platform', 'linux/amd64', '--provenance=false', '--sbom=false',
       '--label', 'org.opencontainers.image.version=' + tag,
       '--label', 'org.opencontainers.image.revision=' + commit,
       '--label', 'org.opencontainers.image.created=' + created.toISOString(),
