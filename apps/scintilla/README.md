@@ -125,3 +125,23 @@ El laboratorio EC2 anterior fue destruido. Esta migración no crea recursos ni m
 Route 53 resuelve DNS, no aloja la API ni administra Node. Un diseño futuro es un nombre api bajo un dominio que controles → alias Route 53 hacia ALB → instancias o contenedores. HTTPS requiere un certificado y configuración del punto de entrada, por ejemplo ACM con ALB. El health check puede consultar /health.
 
 scintilla.dev era solo el identificador elegido para el módulo Go: no implica propiedad de ese dominio. No registrar dominios ni crear zonas/ALB automáticamente; revisar los costos y elegir un dominio propio antes. CLF sigue siendo el objetivo principal; mantener este ejercicio acotado.
+
+## Versiones de las imágenes
+
+Cada publicación lleva una única etiqueta FECHA-EJECUCION-INTENTO, por ejemplo 2026-11-24-15-1. La fecha corresponde al inicio del paso de publicación en UTC; la ejecución es GITHUB_RUN_NUMBER y el intento es GITHUB_RUN_ATTEMPT del workflow Scintilla image. Re-run jobs conserva la ejecución e incrementa el intento: 2026-11-24-15-2. Una nueva ejecución incrementa el contador y comienza con intento 1: 2026-11-24-16-1. La fecha del reintento puede cambiar si se ejecuta otro día.
+
+Esta convención basada en fecha y ejecución no usa SemVer para las imágenes. package.json conserva su versión interna de paquete, que no controla las publicaciones Docker. No hay Release Please, PRs automáticas, latest ni un tag adicional de commit.
+
+ECR mantiene las etiquetas inmutables. El commit completo queda registrado en el label OCI org.opencontainers.image.revision y en el resumen de Actions. El resumen muestra también la URI y el digest: el despliegue puede fijarse a repository@sha256:DIGEST.
+
+El workflow ejecuta test y publish. Solo main publica, con SCINTILLA_PUBLISH_ENABLED=true y el rol OIDC existente. Cada nueva ejecución construye y prueba su propia imagen, incluso si repite el commit. El script reutiliza la imagen si ya existe exactamente su etiqueta.
+
+Para verificar las reglas desde la raíz del repositorio:
+
+```bash
+node --test scripts/test/scintilla-image.test.mjs
+```
+
+La prueba cubre fecha UTC, cambio de día, reintentos y contadores inválidos. No requiere AWS ni Docker.
+
+Las imágenes anteriores permanecen en ECR; no se renombran ni eliminan automáticamente. No hace falta terraform apply para cambiar esta convención.
