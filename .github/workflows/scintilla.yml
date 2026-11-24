@@ -1,0 +1,91 @@
+name: Scintilla image
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/scintilla/**'
+      - '.github/workflows/scintilla.yml'
+  pull_request:
+    paths:
+      - 'apps/scintilla/**'
+      - '.github/workflows/scintilla.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scintilla-image-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: apps/scintilla
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: apps/scintilla/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  publish:
+    needs: test
+    # Activar solo después de aplicar labs/03-ecr y comprobar el rol OIDC.
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.SCINTILLA_PUBLISH_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      AWS_REGION: us-east-2
+      ECR_REPOSITORY: scintilla
+      REGISTRY: 603404126514.dkr.ecr.us-east-2.amazonaws.com
+      IMAGE_TAG: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: aws-actions/configure-aws-credentials@v5
+        with:
+          role-to-assume: arn:aws:iam::603404126514:role/github-scintilla-publish
+          aws-region: us-east-2
+          allowed-account-ids: '603404126514'
+      - uses: aws-actions/amazon-ecr-login@v2
+      - name: Check whether this commit is already published
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          if aws ecr describe-images --repository-name "$ECR_REPOSITORY" --image-ids imageTag="$IMAGE_TAG" > /tmp/ecr-image.json 2> /tmp/ecr-image.err; then
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+          elif grep -q 'ImageNotFoundException' /tmp/ecr-image.err; then
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          else
+            cat /tmp/ecr-image.err >&2
+            exit 1
+          fi
+      - name: Build and publish Linux amd64 image
+        if: steps.image.outputs.exists != 'true'
+        shell: bash
+        working-directory: apps/scintilla
+        run: |
+          set -euo pipefail
+          image="$REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG"
+          docker build --platform linux/amd64 --tag "$image" .
+          docker push "$image"
+      - name: Show image for deployment
+        shell: bash
+        run: |
+          printf 'Published image: %s/%s:%s\n' "$REGISTRY" "$ECR_REPOSITORY" "$IMAGE_TAG"
